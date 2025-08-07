@@ -1,55 +1,15 @@
+# luna/main.py
+"""
+The main entry point for the L.U.N.A. assistant application.
+
+This module is responsible for orchestrating the application's components.
+"""
 import ollama
-import subprocess
 import json
+from . import config, prompts, tools
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-
-# --- Tools ---
-def send_desktop_notification(title: str, message: str):
-    """Sends a desktop notification to the user."""
-    try:
-        subprocess.run(['notify-send', title, message], check=True)
-        return f"Successfully sent notification with title '{title}'."
-    except FileNotFoundError:
-        return "Error: `notify-send` command not found. Is libnotify installed?"
-    except Exception as e:
-        return f"Error sending notification: {e}"
-
-AVAILABLE_TOOLS = {
-    "send_desktop_notification": send_desktop_notification
-}
-
-# --- Main Assistant Logic ---
-
-def create_system_prompt():
-    """Creates a more strict system prompt to improve tool-use reliability."""
-    # FINAL CORRECTION: All braces are now escaped.
-    return """You are L.U.N.A., an AI assistant that uses tools to help users.
-
-**TOOL USE RULES:**
-1.  If the user's request can be fulfilled by a tool, your response MUST be a single, valid JSON object and NOTHING else.
-2.  Do NOT add any conversational text, introductions, or explanations before or after the JSON object.
-3.  Your entire response must be only the JSON required to call the tool.
-
-**AVAILABLE TOOLS:**
-- tool_name: 'send_desktop_notification'
-  - description: Sends a desktop notification.
-  - tool_args: {{"title": "string", "message": "string"}}
-
-**EXAMPLE OF A CORRECT TOOL RESPONSE:**
-User: "remind me to take out the trash"
-Assistant:
-{{
-    "tool_name": "send_desktop_notification",
-    "tool_args": {{
-        "title": "Reminder",
-        "message": "Take out the trash."
-    }}
-}}
-
-If the user's request is a general question or greeting that does not require a tool, then you can respond with a normal, conversational answer.
-"""
 
 def is_ollama_running():
     """Check if the Ollama service is running."""
@@ -66,21 +26,20 @@ def main():
         print("\n[ERROR] Ollama service is not running.")
         return
 
-    # --- Configuration for which Ollama model to use ---
-    LLM_MODEL = "llama3"
+    LLM_MODEL = config.LLM_MODEL
     print(f"Using model: {LLM_MODEL}")
-    # ---------------------------------------------------
 
     llm = ChatOllama(model=LLM_MODEL)
 
+    # Use the prompt from our dedicated prompts module
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", create_system_prompt()),
+        ("system", prompts.create_system_prompt()),
         ("user", "{input}")
     ])
 
     chain = prompt_template | llm | StrOutputParser()
 
-    print("\nL.U.N.A. is online. Let's try tools the robust way!")
+    print("\nL.U.N.A. is online.")
     while True:
         try:
             user_input = input("\nYou: ")
@@ -97,9 +56,10 @@ def main():
                     tool_name = tool_call.get("tool_name")
                     tool_args = tool_call.get("tool_args", {})
 
-                    if tool_name in AVAILABLE_TOOLS:
+                    # Use the tools from our dedicated tools module
+                    if tool_name in tools.AVAILABLE_TOOLS:
                         print(f"L.U.N.A:  Okay, running the `{tool_name}` tool...")
-                        tool_function = AVAILABLE_TOOLS[tool_name]
+                        tool_function = tools.AVAILABLE_TOOLS[tool_name]
                         result = tool_function(**tool_args)
                         print(f"L.U.N.A: {result}")
                     else:
