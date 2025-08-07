@@ -3,7 +3,8 @@
 The main command-line entry point for running the L.U.N.A. assistant.
 """
 import ollama
-from . import config
+# NEW: Import our new speech module
+from . import config, speech
 from .agent import LunaAgent
 from langchain_ollama import ChatOllama
 
@@ -24,30 +25,31 @@ def main():
 
     print(f"Using model: {config.LLM_MODEL}")
 
-    # 1. Initialize the LLM
     llm = ChatOllama(model=config.LLM_MODEL)
-
-    # 2. Create an instance of our agent
     agent = LunaAgent(llm)
 
     print("\nL.U.N.A. is online.")
-    # 3. Start the chat loop
     while True:
         try:
             user_input = input("\nYou: ")
             if user_input.lower() == 'exit':
-                print("L.U.N.A: Goodbye!")
+                speech.speak("Goodbye!")
                 break
 
-            # 4. Get the response from the agent
+            # Get the response from the agent
             response = agent.process_input(user_input)
+
+            # Print the response to the console so we can still see it
             print(f"L.U.N.A: {response}")
+            speech.speak(response)
 
         except KeyboardInterrupt:
-            print("\nL.U.N.A: Goodbye!")
+            speech.speak("Goodbye!")
             break
         except Exception as e:
-            print(f"\n[ERROR] An unexpected error occurred: {e}")
+            error_message = f"An unexpected error occurred: {e}"
+            print(f"\n[ERROR] {error_message}")
+            speech.speak("I'm sorry, an error occurred.")
             break
 
 if __name__ == "__main__":

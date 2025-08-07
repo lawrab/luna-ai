@@ -38,6 +38,7 @@ pydantic_core==2.33.2
 Pygments==2.19.2
 pytest==8.4.1
 python-dotenv==1.1.1
+
 PyYAML==6.0.2
 requests==2.32.4
 requests-toolbelt==1.0.0

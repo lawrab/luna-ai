@@ -9,7 +9,7 @@ Core Technologies Used
 
     Operating System: NixOS with Hyprland
 
-    Environment Management: shell.nix to define a reproducible development environment.
+    Environment Management: flake.nix to define a reproducible development environment using Nix flakes.
 
     Programming Language: Python
 
@@ -28,6 +28,7 @@ The project has evolved from a simple script to a well-structured application by
     Initial Setup: Created a basic main.py script for conversational AI using LangChain and Ollama.
 
     Environment Definition: Established a reproducible environment using shell.nix and managed Python packages with requirements.txt.
+    Flake Migration: Migrated from shell.nix to flake.nix for a more modern and robust Nix development environment. Addressed zsh configuration issues within the flake by ensuring proper shell execution.
 
     Tool Integration (Initial Attempt): Attempted to use LangChain's built-in .bind_tools() which failed due to model limitations.
 
@@ -50,6 +51,8 @@ The project has evolved from a simple script to a well-structured application by
         Wrote unit tests for the tool functions in test_tools.py, using @patch to mock external dependencies (subprocess.run).
 
         Wrote integration tests for the LunaAgent in test_agent.py, verifying the agent's logic for both conversational responses and tool calls.
+
+    TTS: Initially attempted `pyttsx3` but encountered compatibility issues with Nix environment. Switched to direct `subprocess` calls to `espeak-ng` for robust text-to-speech functionality.
 
 Current State
 

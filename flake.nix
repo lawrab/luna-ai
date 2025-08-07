@@ -16,7 +16,10 @@
           pkgs.python311Packages.pip
           pkgs.zsh
           pkgs.libnotify # For notify-send
+          pkgs.espeak-ng 
         ];
+
+        
 
         shell = pkgs.zsh; # Ensure zsh is the shell
 
