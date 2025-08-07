@@ -5,8 +5,6 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-LLM_MODEL = "llama3"
-
 # --- Tools ---
 def send_desktop_notification(title: str, message: str):
     """Sends a desktop notification to the user."""
@@ -25,33 +23,32 @@ AVAILABLE_TOOLS = {
 # --- Main Assistant Logic ---
 
 def create_system_prompt():
-    """Creates the system prompt with tool descriptions."""
-    # CORRECTED: All curly braces in the example JSON are now escaped with double braces.
-    return """You are a helpful and friendly AI assistant named L.U.N.A. You have access to the following tools.
+    """Creates a more strict system prompt to improve tool-use reliability."""
+    # FINAL CORRECTION: All braces are now escaped.
+    return """You are L.U.N.A., an AI assistant that uses tools to help users.
 
-To use a tool, you MUST respond with a JSON object ONLY, and no other text.
-The JSON object must have a 'tool_name' and a 'tool_args' key.
-The 'tool_args' object must contain the arguments for the function.
+**TOOL USE RULES:**
+1.  If the user's request can be fulfilled by a tool, your response MUST be a single, valid JSON object and NOTHING else.
+2.  Do NOT add any conversational text, introductions, or explanations before or after the JSON object.
+3.  Your entire response must be only the JSON required to call the tool.
 
-Here are the available tools:
+**AVAILABLE TOOLS:**
 - tool_name: 'send_desktop_notification'
-  - description: Sends a desktop notification to the user. Use this to alert the user about something important or upon their request.
-  - tool_args:
-    - title (string, required): The title of the notification.
-    - message (string, required): The main body/message of the notification.
+  - description: Sends a desktop notification.
+  - tool_args: {{"title": "string", "message": "string"}}
 
-Example of a tool call:
-User: "remind me to take a break in 5 minutes"
+**EXAMPLE OF A CORRECT TOOL RESPONSE:**
+User: "remind me to take out the trash"
 Assistant:
 {{
     "tool_name": "send_desktop_notification",
     "tool_args": {{
         "title": "Reminder",
-        "message": "Time to take a break!"
+        "message": "Take out the trash."
     }}
 }}
 
-If you are not calling a tool, just respond as a friendly AI assistant.
+If the user's request is a general question or greeting that does not require a tool, then you can respond with a normal, conversational answer.
 """
 
 def is_ollama_running():
@@ -75,12 +72,12 @@ def main():
     # ---------------------------------------------------
 
     llm = ChatOllama(model=LLM_MODEL)
-    
+
     prompt_template = ChatPromptTemplate.from_messages([
         ("system", create_system_prompt()),
         ("user", "{input}")
     ])
-    
+
     chain = prompt_template | llm | StrOutputParser()
 
     print("\nL.U.N.A. is online. Let's try tools the robust way!")
@@ -92,14 +89,14 @@ def main():
                 break
 
             response_text = chain.invoke({"input": user_input})
-            
+
             try:
                 tool_call = json.loads(response_text)
-                
+
                 if isinstance(tool_call, dict) and "tool_name" in tool_call:
                     tool_name = tool_call.get("tool_name")
                     tool_args = tool_call.get("tool_args", {})
-                    
+
                     if tool_name in AVAILABLE_TOOLS:
                         print(f"L.U.N.A:  Okay, running the `{tool_name}` tool...")
                         tool_function = AVAILABLE_TOOLS[tool_name]
