@@ -1,15 +1,11 @@
 # luna/main.py
 """
-The main entry point for the L.U.N.A. assistant application.
-
-This module is responsible for orchestrating the application's components.
+The main command-line entry point for running the L.U.N.A. assistant.
 """
 import ollama
-import json
-from . import config, prompts, tools
+from . import config
+from .agent import LunaAgent
 from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
 def is_ollama_running():
     """Check if the Ollama service is running."""
@@ -26,20 +22,16 @@ def main():
         print("\n[ERROR] Ollama service is not running.")
         return
 
-    LLM_MODEL = config.LLM_MODEL
-    print(f"Using model: {LLM_MODEL}")
+    print(f"Using model: {config.LLM_MODEL}")
 
-    llm = ChatOllama(model=LLM_MODEL)
+    # 1. Initialize the LLM
+    llm = ChatOllama(model=config.LLM_MODEL)
 
-    # Use the prompt from our dedicated prompts module
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", prompts.create_system_prompt()),
-        ("user", "{input}")
-    ])
-
-    chain = prompt_template | llm | StrOutputParser()
+    # 2. Create an instance of our agent
+    agent = LunaAgent(llm)
 
     print("\nL.U.N.A. is online.")
+    # 3. Start the chat loop
     while True:
         try:
             user_input = input("\nYou: ")
@@ -47,28 +39,9 @@ def main():
                 print("L.U.N.A: Goodbye!")
                 break
 
-            response_text = chain.invoke({"input": user_input})
-
-            try:
-                tool_call = json.loads(response_text)
-
-                if isinstance(tool_call, dict) and "tool_name" in tool_call:
-                    tool_name = tool_call.get("tool_name")
-                    tool_args = tool_call.get("tool_args", {})
-
-                    # Use the tools from our dedicated tools module
-                    if tool_name in tools.AVAILABLE_TOOLS:
-                        print(f"L.U.N.A:  Okay, running the `{tool_name}` tool...")
-                        tool_function = tools.AVAILABLE_TOOLS[tool_name]
-                        result = tool_function(**tool_args)
-                        print(f"L.U.N.A: {result}")
-                    else:
-                        print(f"L.U.N.A: I tried to use a tool named '{tool_name}' but I don't have it.")
-                else:
-                    print(f"L.U.N.A: {response_text}")
-
-            except json.JSONDecodeError:
-                print(f"L.U.N.A: {response_text}")
+            # 4. Get the response from the agent
+            response = agent.process_input(user_input)
+            print(f"L.U.N.A: {response}")
 
         except KeyboardInterrupt:
             print("\nL.U.N.A: Goodbye!")
