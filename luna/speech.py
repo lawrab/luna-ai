@@ -2,28 +2,32 @@
 """
 Handles Text-to-Speech (TTS) functionality for the L.U.N.A. assistant.
 """
-# luna/speech.py
-"""
-Handles Text-to-Speech (TTS) functionality for the L.U.N.A. assistant.
-"""
+import asyncio
 import subprocess
 from . import events
 
-def speak(text: str):
+async def speak(text: str):
     """
-    Speaks the given text aloud using the espeak-ng command-line tool.
+    Speaks the given text aloud using the espeak-ng command-line tool asynchronously.
     """
     try:
-        # Use subprocess to call espeak-ng directly
-        subprocess.run(['espeak-ng', text], check=True, stderr=subprocess.DEVNULL)
+        # Use asyncio.create_subprocess_exec to call espeak-ng non-blockingly
+        process = await asyncio.create_subprocess_exec(
+            'espeak-ng', text,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await process.wait() # Wait for the command to complete
     except FileNotFoundError:
         events.publish("error", "`espeak-ng` command not found. Is it installed and in your PATH?")
-    except subprocess.CalledProcessError as e:
-        events.publish("error", f"Speech synthesis failed: {e}")
     except Exception as e:
         events.publish("error", f"An unexpected error occurred during speech synthesis: {e}")
+
+async def speak_goodbye():
+    """Async wrapper for goodbye message."""
+    await speak("Goodbye!")
 
 def register_event_listeners():
     """Subscribes to events from the event bus."""
     events.subscribe("agent_response", speak)
-    events.subscribe("system_shutdown", lambda: speak("Goodbye!"))
+    events.subscribe("system_shutdown", speak_goodbye)

@@ -2,6 +2,7 @@
 """
 The main entry point for running the L.U.N.A. assistant.
 """
+import asyncio
 import ollama
 from . import config, events, speech, ui
 from .agent import LunaAgent
@@ -26,11 +27,11 @@ class App:
         events.subscribe("tool_finished", lambda result: self.ui.display_message(f"Tool finished: {result}", style="yellow"))
         events.subscribe("system_shutdown", self.stop)
 
-    def start(self):
+    async def start(self):
         """Initializes and starts the main application loop."""
         self.ui.display_status("Initializing L.U.N.A. - Logical Unified Network Assistant...")
 
-        if not self._is_ollama_running():
+        if not await self._is_ollama_running():
             self.ui.display_error("Ollama service is not running. Please start it and try again.")
             return
 
@@ -39,53 +40,76 @@ class App:
         self.agent = LunaAgent(llm)
         
         speech.register_event_listeners()
-        self.audio_listener.start() # Start the audio listener thread
+        # Start the audio listener as an asyncio task
+        self.audio_listener_task = asyncio.create_task(self.audio_listener.start_listening())
 
         self.ui.display_status("L.U.N.A. is online. Listening...")
-        self.main_loop()
-
-    def main_loop(self):
-        """The main event loop where the application listens for input."""
-        # The audio listener runs in its own thread, so the main loop can be simpler
+        
+        # Check if audio is available, if not provide text input fallback
+        from .listen import AUDIO_DEPENDENCIES_AVAILABLE
+        if not AUDIO_DEPENDENCIES_AVAILABLE:
+            self.ui.display_status("Audio input not available. You can type 'exit' to quit.")
+            asyncio.create_task(self._text_input_loop())
+        # The main event loop is now managed by asyncio.run()
+        
+    async def _text_input_loop(self):
+        """Fallback text input loop when audio is not available."""
         while self.running:
-            # This loop can be used for other main thread tasks or just to keep the app alive
-            # For now, we'll just keep it running until self.running becomes False
-            events.wait_for_event("system_shutdown", timeout=0.1) # Small timeout to allow checking self.running
+            try:
+                # Use asyncio.to_thread to avoid blocking the event loop
+                user_input = await asyncio.to_thread(input, "You: ")
+                if user_input.strip():
+                    events.publish("user_input", user_input.strip())
+                await asyncio.sleep(0.1)  # Small delay to prevent busy loop
+            except (EOFError, KeyboardInterrupt):
+                await self.stop()
+                break
+            except Exception as e:
+                events.publish("error", f"Text input error: {e}")
+                break
 
-    def handle_input(self, user_input: str):
+    async def handle_input(self, user_input: str):
         """Handles user input from the listener."""
         if not user_input.strip(): # Ignore empty input
             return
 
         if user_input.lower().strip() == 'exit':
-            self.stop()
+            await self.stop()
         else:
-            self.agent.process_input(user_input)
+            await self.agent.process_input(user_input)
 
-    def stop(self, *args):
+    async def stop(self, *args):
         """Stops the application."""
         if self.running:
             self.running = False
-            self.audio_listener.stop() # Stop the audio listener
-            self.audio_listener.join() # Wait for the audio listener thread to finish
+            # Stop the audio listener task
+            if self.audio_listener_task:
+                self.audio_listener_task.cancel()
+                try:
+                    await self.audio_listener_task
+                except asyncio.CancelledError:
+                    pass # Task was cancelled as expected
+            await self.audio_listener.stop()
             events.publish("system_shutdown")
 
-    def _is_ollama_running(self):
+    async def _is_ollama_running(self):
         """Checks if the Ollama service is available."""
         try:
-            ollama.list()
+            await asyncio.to_thread(ollama.list)
             return True
         except Exception:
             return False
 
-def main():
+async def main():
     app = App()
     try:
-        app.start()
+        await app.start()
+        # Keep the main task running until a shutdown event
+        await events.wait_for_event("system_shutdown")
     except KeyboardInterrupt:
-        app.stop()
+        await app.stop()
     except Exception as e:
         app.ui.display_error(f"An unexpected critical error occurred: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

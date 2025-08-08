@@ -1,12 +1,23 @@
 """
 Defines the tools available to the L.U.N.A. assistant and a mapping of their names to functions.
 """
+import asyncio
 import subprocess
 
-def send_desktop_notification(title: str, message: str):
-    """Sends a desktop notification to the user."""
+async def send_desktop_notification(title: str, message: str):
+    """Sends a desktop notification to the user asynchronously."""
     try:
-        subprocess.run(['notify-send', title, message], check=True)
+        process = await asyncio.create_subprocess_exec(
+            'notify-send', title, message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            error_message = stderr.decode().strip() if stderr else f"Process exited with code {process.returncode}"
+            return f"Error sending notification: {error_message}"
+        
         return f"Successfully sent notification with title '{title}'."
     except FileNotFoundError:
         return "Error: `notify-send` command not found. Is libnotify installed?"
