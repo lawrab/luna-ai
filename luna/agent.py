@@ -3,6 +3,7 @@
 Contains the core LunaAgent class that orchestrates the assistant's logic.
 """
 import json
+import threading
 from . import prompts, tools, events
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -28,7 +29,9 @@ class LunaAgent:
         try:
             tool_call = json.loads(response_text)
             if isinstance(tool_call, dict) and "tool_name" in tool_call:
-                self._execute_tool(tool_call)
+                # Execute tool in a separate thread to avoid blocking the main loop
+                tool_thread = threading.Thread(target=self._execute_tool, args=(tool_call,))
+                tool_thread.start()
             else:
                 events.publish("agent_response", response_text)
 

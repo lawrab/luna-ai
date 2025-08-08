@@ -64,6 +64,37 @@ python luna/main.py
 
 L.U.N.A. will then be ready to receive your input in the terminal.
 
+## Troubleshooting Audio Input
+
+If you encounter issues with audio input (e.g., ALSA errors, Jack errors, or microphone not being detected), you may need to explicitly set the audio input device index.
+
+1.  **List Available Audio Devices:**
+
+    Run the following script to list all available audio input devices and their corresponding indices:
+
+    ```bash
+    python scripts/list_audio_devices.py
+    ```
+
+    This will output a list similar to this:
+
+    ```
+    Available audio input devices:
+    Device Index: 1, Name: HDA Intel PCH: ALC1220 Alt Analog (hw:0,2)
+    Device Index: 13, Name: pipewire
+    Device Index: 15, Name: default
+    ```
+
+2.  **Update `luna/config.py`:**
+
+    Open `luna/config.py` and set the `AUDIO_INPUT_DEVICE_INDEX` variable to the index of your desired microphone. For example, if `pipewire` is your preferred input, you would set:
+
+    ```python
+    AUDIO_INPUT_DEVICE_INDEX = 13
+    ```
+
+    If you leave `AUDIO_INPUT_DEVICE_INDEX = None`, PyAudio will attempt to use the system's default device.
+
 ## Testing
 
 To run the test suite, ensure you are in the `nix develop` shell and have installed the Python dependencies. Then, execute `pytest`:
@@ -105,7 +136,9 @@ L.U.N.A. is built on a modular, event-driven architecture that decouples the cor
 ├───pytest.ini
 ├───README.md
 ├───requirements.txt
-├───shell.nix
+├───scripts/
+├───flake.nix
+├───flake.lock
 ├───luna/
 │   ├───__init__.py
 │   ├───agent.py         # Core LunaAgent class encapsulating assistant logic

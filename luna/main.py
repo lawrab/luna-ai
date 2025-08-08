@@ -3,8 +3,9 @@
 The main entry point for running the L.U.N.A. assistant.
 """
 import ollama
-from . import config, events, speech, listen, ui
+from . import config, events, speech, ui
 from .agent import LunaAgent
+from .listen import AudioListener # Import the new AudioListener
 from langchain_ollama import ChatOllama
 
 class App:
@@ -12,6 +13,7 @@ class App:
         self.ui = ui.ConsoleUI()
         self.agent = None
         self.running = True
+        self.audio_listener = AudioListener() # Instantiate AudioListener
         self._setup_event_listeners()
 
     def _setup_event_listeners(self):
@@ -37,14 +39,18 @@ class App:
         self.agent = LunaAgent(llm)
         
         speech.register_event_listeners()
+        self.audio_listener.start() # Start the audio listener thread
 
         self.ui.display_status("L.U.N.A. is online. Listening...")
         self.main_loop()
 
     def main_loop(self):
         """The main event loop where the application listens for input."""
+        # The audio listener runs in its own thread, so the main loop can be simpler
         while self.running:
-            listen.listen_and_transcribe()
+            # This loop can be used for other main thread tasks or just to keep the app alive
+            # For now, we'll just keep it running until self.running becomes False
+            events.wait_for_event("system_shutdown", timeout=0.1) # Small timeout to allow checking self.running
 
     def handle_input(self, user_input: str):
         """Handles user input from the listener."""
@@ -60,6 +66,8 @@ class App:
         """Stops the application."""
         if self.running:
             self.running = False
+            self.audio_listener.stop() # Stop the audio listener
+            self.audio_listener.join() # Wait for the audio listener thread to finish
             events.publish("system_shutdown")
 
     def _is_ollama_running(self):
