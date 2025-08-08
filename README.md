@@ -72,6 +72,28 @@ To run the test suite, ensure you are in the `nix develop` shell and have instal
 pytest
 ```
 
+## Application Architecture
+
+L.U.N.A. is built on a modular, event-driven architecture that decouples the core logic from the user interface and other components. This design makes the application more flexible, extensible, and easier to maintain.
+
+### Core Components
+
+*   **Event Bus (`luna/events.py`)**: A simple publish-subscribe system that allows different parts of the application to communicate without being directly coupled. For example, when the agent has a response, it publishes an `agent_response` event, and the UI and speech modules subscribe to this event to act on it.
+*   **UI Abstraction (`luna/ui.py`)**: A module that handles all console output. It wraps the `rich` library, so if you ever want to switch to a different UI toolkit (like a graphical one), you'll only need to change this one file.
+*   **Agent (`luna/agent.py`)**: The core logic of the assistant. It receives user input, interacts with the LLM, and publishes events with the results.
+*   **Speech (`luna/speech.py`)**: Handles text-to-speech functionality. It subscribes to the `agent_response` event to speak the assistant's responses.
+*   **Listener (`luna/listen.py`)**: Handles speech-to-text functionality. It listens for user input and publishes a `user_input` event when it detects speech.
+*   **Main (`luna/main.py`)**: The entry point of the application. It initializes the core components, registers event listeners, and starts the main application loop.
+
+### Event Flow
+
+1.  The `main.py` module starts the application and the main loop.
+2.  The `listen.py` module listens for user input.
+3.  When the user speaks, `listen.py` transcribes the speech and publishes a `user_input` event.
+4.  The `agent.py` module, which subscribes to the `user_input` event, receives the transcribed text and processes it.
+5.  The `agent.py` module interacts with the LLM and publishes an `agent_response` event with the result.
+6.  The `ui.py` and `speech.py` modules, which subscribe to the `agent_response` event, receive the response and display it to the user (text and speech).
+
 ## Project Structure
 
 ```
@@ -88,9 +110,13 @@ pytest
 │   ├───__init__.py
 │   ├───agent.py         # Core LunaAgent class encapsulating assistant logic
 │   ├───config.py        # Centralized configuration settings
+│   ├───events.py        # Event bus for decoupled communication
+│   ├───listen.py        # Speech-to-text functionality
 │   ├───main.py          # Entry point for the application
 │   ├───prompts.py       # Defines system prompts for the LLM
-│   └───tools.py         # Defines available tools (e.g., send_desktop_notification)
+│   ├───speech.py        # Text-to-speech functionality
+│   ├───tools.py         # Defines available tools (e.g., send_desktop_notification)
+│   └───ui.py            # UI abstraction for console output
 └───tests/
     ├───__init__.py
     ├───test_agent.py    # Integration tests for LunaAgent
