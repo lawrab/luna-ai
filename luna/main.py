@@ -4,7 +4,7 @@ The main command-line entry point for running the L.U.N.A. assistant.
 """
 import ollama
 # NEW: Import our new speech module
-from . import config, speech
+from . import config, speech, listen
 from .agent import LunaAgent
 from langchain_ollama import ChatOllama
 
@@ -31,7 +31,7 @@ def main():
     print("\nL.U.N.A. is online.")
     while True:
         try:
-            user_input = input("\nYou: ")
+            user_input = listen.listen_and_transcribe()
             if user_input.lower() == 'exit':
                 speech.speak("Goodbye!")
                 break

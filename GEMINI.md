@@ -54,6 +54,8 @@ The project has evolved from a simple script to a well-structured application by
 
     TTS: Initially attempted `pyttsx3` but encountered compatibility issues with Nix environment. Switched to direct `subprocess` calls to `espeak-ng` for robust text-to-speech functionality.
 
+    STT: Migrated from `vosk` to OpenAI's `Whisper` for Speech-to-Text. The implementation now captures a full utterance (detected by a pause in speech) and then transcribes it, simplifying the real-time display aspect.
+
 Current State
 
 The project is now a well-structured Python application with a clear separation of concerns, centralized configuration, and a suite of automated tests. It can successfully parse user input, decide whether to use its send_desktop_notification tool, and respond conversationally.
