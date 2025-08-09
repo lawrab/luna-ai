@@ -61,6 +61,13 @@ class Settings(BaseSettings):
             return Path(v).expanduser()
         return v
     
+    @field_validator('audio_input_device_index', mode='before')
+    @classmethod
+    def validate_audio_device_index(cls, v):
+        if isinstance(v, str) and v.strip() == '':
+            return None
+        return v
+    
     def to_app_config(self) -> AppConfig:
         """Convert settings to AppConfig."""
         return AppConfig(
