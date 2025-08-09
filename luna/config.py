@@ -1,12 +1,20 @@
 # luna/config.py
 """
-Centralized configuration settings for the L.U.N.A. assistant.
+Legacy configuration file - kept for backward compatibility.
+New configuration is in luna/core/config.py
 """
+import warnings
+from .core.config import get_settings
 
-# Name of the Ollama model to use for the assistant
-LLM_MODEL = "llama3"
+# Backward compatibility - these will be deprecated
+warnings.warn(
+    "Using luna.config is deprecated. Use luna.core.config instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
-# Audio input device index for PyAudio. Set to None to use the default device.
-# To find available device indices, run the `list_audio_devices.py` script
-# located in the `scripts` directory.
-AUDIO_INPUT_DEVICE_INDEX = 3
+_settings = get_settings()
+
+# Legacy exports
+LLM_MODEL = _settings.llm_model_name
+AUDIO_INPUT_DEVICE_INDEX = _settings.audio_input_device_index
