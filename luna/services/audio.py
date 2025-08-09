@@ -461,12 +461,28 @@ class AudioService(Injectable, LoggingMixin):
                         audio_data = np.frombuffer(chunk, dtype=np.int16)
                         rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
                         
-                        # Voice activity detection
-                        if rms < self.config.silence_threshold:
+                        # Debug: Print RMS values periodically (every 50 chunks)
+                        if self._stats.chunks_processed % 50 == 0:
+                            logger.debug(f"Audio RMS: {rms:.1f} | Speaking: {speaking}")
+                        
+                        # Two-level threshold system for better voice detection
+                        speech_start_threshold = 800  # Higher threshold to start recording
+                        speech_end_threshold = 200    # Lower threshold to stop recording
+                        
+                        # Voice activity detection with hysteresis
+                        if speaking:
+                            # If already speaking, use lower threshold to continue
+                            is_silent = rms < speech_end_threshold
+                        else:
+                            # If not speaking, use higher threshold to start
+                            is_silent = rms < speech_start_threshold
+                        
+                        if is_silent:
                             silent_chunks += 1
                             if speaking and silent_chunks > silence_limit_chunks:
                                 # End of speech detected
                                 speaking = False
+                                logger.info(f"🔇 Speech ended. Processing {len(frames)} audio frames...")
                                 if frames:
                                     await self._handle_speech_segment(frames, correlation_id)
                                     frames = []
@@ -476,6 +492,7 @@ class AudioService(Injectable, LoggingMixin):
                             if not speaking:
                                 # Start of speech detected
                                 speaking = True
+                                logger.info(f"🔊 Speech detected! RMS: {rms:.1f} (start threshold: {speech_start_threshold})")
                                 await self._event_bus.publish(AudioEvent(
                                     type="audio.speech_started",
                                     correlation_id=correlation_id
