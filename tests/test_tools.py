@@ -1,55 +1,126 @@
 # tests/test_tools.py
+"""
+Tests for desktop notification tool integration.
+"""
 from unittest.mock import patch, AsyncMock
 import pytest
-import pytest_asyncio # Import pytest_asyncio
-import asyncio
-from luna.tools import send_desktop_notification
+
+from luna.tools.desktop import DesktopNotificationTool, NotificationInput
+from luna.core.types import CorrelationId
+
 
 @pytest.mark.asyncio
-@patch('luna.tools.asyncio.create_subprocess_exec') # Patch the async subprocess call
-async def test_send_notification_success(mock_create_subprocess_exec):
+@patch('luna.tools.desktop.asyncio.create_subprocess_exec')
+async def test_desktop_notification_success(mock_create_subprocess_exec):
     """
-    Tests that the notification function calls asyncio.create_subprocess_exec with the correct arguments
-    and returns a success message asynchronously.
+    Test successful desktop notification execution.
     """
-    # Configure the mock for asyncio.create_subprocess_exec
+    # Configure the mock process
     mock_process = AsyncMock()
     mock_process.returncode = 0
-    mock_process.communicate.return_value = (b'', b'') # Mock stdout, stderr
+    mock_process.communicate = AsyncMock(return_value=(b'', b''))
     mock_create_subprocess_exec.return_value = mock_process
 
-    title = "Test Title"
-    message = "Test Message"
-    expected_command = ['notify-send', title, message]
+    # Create tool and input
+    tool = DesktopNotificationTool()
+    input_data = {
+        "title": "Test Title",
+        "message": "Test Message",
+        "urgency": "normal"
+    }
+    correlation_id = CorrelationId("test-notification")
 
-    # 1. Call the function we are testing
-    result = await send_desktop_notification(title, message) # Await the call
+    # Execute tool
+    result = await tool.safe_execute(input_data, correlation_id)
 
-    # 2. Assert that our mock subprocess was called with the correct command
-    mock_create_subprocess_exec.assert_called_once_with(
-        *expected_command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    mock_process.communicate.assert_called_once() # Ensure communicate was called
+    # Verify execution
+    assert result.success is True
+    assert "Successfully sent notification" in result.message
+    assert "Test Title" in result.message
+    assert result.data["title"] == "Test Title"
+    assert result.data["message"] == "Test Message"
 
-    # 3. Assert that the function returns the expected success message
-    assert "Successfully sent" in result
+    # Verify command was called correctly
+    mock_create_subprocess_exec.assert_called_once()
+    args = mock_create_subprocess_exec.call_args[1:]  # Get positional args
+    called_cmd = mock_create_subprocess_exec.call_args[0]
+    
+    # Should include notify-send, urgency, title, and message
+    assert "notify-send" in called_cmd
+    assert "Test Title" in called_cmd
+    assert "Test Message" in called_cmd
 
 
 @pytest.mark.asyncio
-@patch('luna.tools.asyncio.create_subprocess_exec') # Patch the async subprocess call
-async def test_send_notification_failure_gracefully(mock_create_subprocess_exec):
+@patch('luna.tools.desktop.asyncio.create_subprocess_exec')
+async def test_desktop_notification_command_not_found(mock_create_subprocess_exec):
     """
-    Tests that the notification function handles a FileNotFoundError gracefully
-    if the 'notify-send' command doesn't exist asynchronously.
+    Test handling when notify-send command is not found.
     """
-    # 1. Configure the mock to raise an error when it's called
+    # Configure mock to raise FileNotFoundError
     mock_create_subprocess_exec.side_effect = FileNotFoundError
 
-    # 2. Call the function and expect it to catch the error
-    result = await send_desktop_notification("any title", "any message") # Await the call
+    # Create tool and input
+    tool = DesktopNotificationTool()
+    input_data = {
+        "title": "Test Title", 
+        "message": "Test Message"
+    }
 
-    # 3. Assert that the function returned a user-friendly error message
-    assert "Error" in result
-    assert "`notify-send` command not found" in result
+    # Execute tool
+    result = await tool.safe_execute(input_data)
+
+    # Verify graceful failure
+    assert result.success is False
+    assert "notify-send command not found" in result.message
+    assert "libnotify" in result.message
+
+
+@pytest.mark.asyncio
+@patch('luna.tools.desktop.asyncio.create_subprocess_exec')
+async def test_desktop_notification_process_failure(mock_create_subprocess_exec):
+    """
+    Test handling when notify-send process fails.
+    """
+    # Configure mock process to fail
+    mock_process = AsyncMock()
+    mock_process.returncode = 1
+    mock_process.communicate = AsyncMock(return_value=(b'', b'Permission denied'))
+    mock_create_subprocess_exec.return_value = mock_process
+
+    # Create tool and input
+    tool = DesktopNotificationTool()
+    input_data = {
+        "title": "Test Title",
+        "message": "Test Message"
+    }
+
+    # Execute tool
+    result = await tool.safe_execute(input_data)
+
+    # Verify failure handling
+    assert result.success is False
+    assert "Failed to send notification" in result.message
+    assert "Permission denied" in result.message
+
+
+def test_notification_input_validation():
+    """
+    Test input validation for notification tool.
+    """
+    # Valid input
+    valid_input = NotificationInput(
+        title="Test Title",
+        message="Test Message",
+        urgency="critical"
+    )
+    assert valid_input.title == "Test Title"
+    assert valid_input.urgency == "critical"
+
+    # Test urgency validation
+    with pytest.raises(ValueError):
+        NotificationInput(
+            title="Test",
+            message="Test",
+            urgency="invalid"  # Should fail pattern validation
+        )

@@ -4,6 +4,7 @@ Pytest configuration and fixtures for L.U.N.A. tests.
 import asyncio
 import logging
 import pytest
+import pytest_asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -62,7 +63,7 @@ def config_manager(test_settings: Settings) -> ConfigManager:
     return config_mgr
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def event_bus() -> AsyncGenerator[AsyncEventBus, None]:
     """Create and start a test event bus."""
     bus = AsyncEventBus(name="test-event-bus")
@@ -73,7 +74,7 @@ async def event_bus() -> AsyncGenerator[AsyncEventBus, None]:
         await bus.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def container() -> AsyncGenerator[Container, None]:
     """Create a test dependency injection container."""
     test_container = Container(name="test-container")

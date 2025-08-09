@@ -241,7 +241,7 @@ Assistant: I don't have access to weather information. You could check a weather
             await self._event_bus.publish(ToolEvent(
                 type="tool.completed",
                 tool_name=tool_name,
-                payload={"result": result.dict()},
+                payload={"result": result.model_dump()},
                 correlation_id=correlation_id
             ))
             

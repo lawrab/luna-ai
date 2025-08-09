@@ -1,81 +1,120 @@
 # tests/test_agent.py
+"""
+Tests for the agent service.
+"""
 import json
 import pytest
-import pytest_asyncio
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-from langchain_core.messages import AIMessage # Import AIMessage
-from langchain_core.output_parsers import StrOutputParser # Import StrOutputParser
+from unittest.mock import AsyncMock, patch
 
-from luna.agent import LunaAgent
-from luna import events # Import events to mock publish
+from luna.services.agent import AgentService
+from luna.tools.desktop import DesktopNotificationTool
+from luna.core.types import CorrelationId, ToolResult
+
 
 @pytest.mark.asyncio
-async def test_agent_handles_tool_call(mocker):
+async def test_agent_service_creation():
     """
-    Tests that the agent, when given a tool-calling response from the LLM,
-    correctly calls the underlying system command asynchronously.
+    Test basic agent service creation and properties.
     """
-    # Mock asyncio.create_subprocess_exec for the tool execution
-    mock_process = AsyncMock()
-    mock_process.returncode = 0
-    mock_process.communicate.return_value = (b'', b'') # Mock stdout, stderr
-    mock_create_subprocess_exec = mocker.patch(
-        'luna.tools.asyncio.create_subprocess_exec',
-        return_value=mock_process
-    )
+    # Mock LLM service
+    mock_llm = AsyncMock()
+    
+    # Create agent service
+    agent_service = AgentService(mock_llm)
+    
+    # Verify basic properties
+    assert agent_service.name == "agent-service"
+    assert agent_service.llm_service is mock_llm
 
-    # Mock events.publish
-    mock_publish = mocker.patch('luna.events.publish')
 
-    tool_call_dict = {
+@pytest.mark.asyncio
+async def test_agent_processes_normal_conversation():
+    """
+    Test that the agent processes normal conversation correctly.
+    """
+    # Mock LLM service
+    mock_llm = AsyncMock()
+    mock_llm.generate.return_value = "Hello! How can I help you today?"
+    
+    # Create agent service
+    agent_service = AgentService(mock_llm)
+    
+    # Mock event bus to capture published events
+    events_published = []
+    
+    async def capture_event(event):
+        events_published.append(event)
+    
+    with patch.object(agent_service._event_bus, 'publish', side_effect=capture_event):
+        # Process input
+        correlation_id = CorrelationId("test-conversation")
+        await agent_service.process_input("Hello", correlation_id)
+        
+        # Verify LLM was called
+        mock_llm.generate.assert_called_once()
+        
+        # Verify response event was published
+        assert len(events_published) == 1
+        response_event = events_published[0]
+        assert response_event.type == "agent.response"
+        assert response_event.payload["text"] == "Hello! How can I help you today?"
+        assert response_event.payload["type"] == "conversation"
+        assert response_event.correlation_id == correlation_id
+
+
+@pytest.mark.asyncio 
+async def test_agent_handles_tool_call():
+    """
+    Test that the agent can process a valid tool call.
+    """
+    # Mock LLM service to return a tool call
+    mock_llm = AsyncMock()
+    tool_response = json.dumps({
         "tool_name": "send_desktop_notification",
         "tool_args": {
-            "title": "Test from Agent",
-            "message": "This is a test."
+            "title": "Test Title",
+            "message": "Test Message"
         }
-    }
+    })
+    mock_llm.generate.return_value = tool_response
     
-    # Create agent and test the tool execution directly
-    agent = LunaAgent(llm=AsyncMock())
+    # Create agent service
+    agent_service = AgentService(mock_llm)
     
-    # Call the method we are testing directly
-    await agent._execute_tool(tool_call_dict)
-
-    # Assert that events were published
-    mock_publish.assert_any_call("tool_started", "send_desktop_notification")
-    mock_publish.assert_any_call("tool_finished", "Successfully sent notification with title 'Test from Agent'.")
-
-    # Assert that our mock for asyncio.create_subprocess_exec was called correctly
-    expected_command = ['notify-send', 'Test from Agent', 'This is a test.']
-    mock_create_subprocess_exec.assert_called_once_with(
-        *expected_command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    mock_process.communicate.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_agent_handles_normal_conversation(mocker):
-    """
-    Tests that the agent returns a simple text response when no tool is called asynchronously.
-    """
-    # Mock events.publish
-    mock_publish = mocker.patch('luna.events.publish')
-
-    chat_response = "Hello! How can I help you today?"
+    # Register a tool in the global registry
+    from luna.tools.base import get_tool_registry
+    registry = get_tool_registry()
+    tool = DesktopNotificationTool()
+    registry.register(tool)
     
-    # Create agent and mock its chain directly
-    agent = LunaAgent(llm=AsyncMock())
-    agent.chain = AsyncMock()
-    agent.chain.ainvoke.return_value = chat_response
-
-    # Call the method we are testing
-    await agent.process_input("Hello")
-
-    # Assert that the chain.ainvoke was called
-    agent.chain.ainvoke.assert_called_once_with({"input": "Hello"})
-
-    # Assert that the agent_response event was published
-    mock_publish.assert_called_once_with("agent_response", chat_response)
+    try:
+        # Mock the tool execution to avoid subprocess calls
+        events_published = []
+        
+        async def capture_event(event):
+            events_published.append(event)
+        
+        with patch.object(agent_service._event_bus, 'publish', side_effect=capture_event):
+            with patch.object(tool, 'safe_execute') as mock_execute:
+                mock_execute.return_value = ToolResult(
+                    success=True,
+                    message="Successfully sent notification: 'Test Title'",
+                    data={"title": "Test Title", "message": "Test Message"}
+                )
+                
+                # Process input that should trigger tool call
+                correlation_id = CorrelationId("test-tool-call")
+                await agent_service.process_input("Send notification", correlation_id)
+                
+                # Verify LLM was called
+                mock_llm.generate.assert_called_once()
+                
+                # Verify tool was executed
+                mock_execute.assert_called_once()
+                
+                # Verify events were published (tool start, tool complete, agent response)
+                assert len(events_published) >= 1
+                
+    finally:
+        # Clean up the registry
+        registry.unregister("send_desktop_notification")

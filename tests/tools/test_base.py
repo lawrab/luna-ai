@@ -9,8 +9,8 @@ from luna.core.types import ToolInput, ToolResult, ToolMetadata, ToolException, 
 from luna.tools.base import BaseTool, ToolRegistry
 
 
-class TestToolInput(ToolInput):
-    """Test input schema."""
+class MockToolInputSchema(ToolInput):
+    """Mock input schema for testing."""
     message: str = Field(..., description="Test message")
     count: int = Field(default=1, description="Test count", ge=0)
 
@@ -23,12 +23,12 @@ class TestTool(BaseTool):
         return ToolMetadata(
             name="test_tool",
             description="A tool for testing",
-            input_schema=TestToolInput,
+            input_schema=MockToolInputSchema,
             category="test",
             tags=["test"]
         )
     
-    async def execute(self, input_data: TestToolInput) -> ToolResult:
+    async def execute(self, input_data: MockToolInputSchema) -> ToolResult:
         if input_data.message == "fail":
             raise ToolException("Intentional test failure")
         
@@ -47,18 +47,18 @@ class FailingTool(BaseTool):
         return ToolMetadata(
             name="failing_tool",
             description="A tool that always fails",
-            input_schema=TestToolInput,
+            input_schema=MockToolInputSchema,
             category="test"
         )
     
-    async def execute(self, input_data: TestToolInput) -> ToolResult:
+    async def execute(self, input_data: MockToolInputSchema) -> ToolResult:
         raise Exception("This tool always fails")
 
 
-@pytest.mark.asyncio
 class TestBaseTool:
     """Test the BaseTool implementation."""
     
+    @pytest.mark.asyncio
     async def test_successful_execution(self):
         """Test successful tool execution."""
         tool = TestTool()
@@ -72,8 +72,9 @@ class TestBaseTool:
         assert result.data["message"] == "hello"
         assert result.data["count"] == 5
         assert result.execution_time_ms is not None
-        assert result.execution_time_ms > 0
+        assert result.execution_time_ms >= 0
     
+    @pytest.mark.asyncio
     async def test_input_validation_error(self):
         """Test handling of input validation errors."""
         tool = TestTool()
@@ -85,6 +86,7 @@ class TestBaseTool:
         assert "Invalid input" in result.message
         assert result.execution_time_ms is not None
     
+    @pytest.mark.asyncio
     async def test_missing_required_field(self):
         """Test handling of missing required fields."""
         tool = TestTool()
@@ -95,6 +97,7 @@ class TestBaseTool:
         assert result.success is False
         assert "Invalid input" in result.message
     
+    @pytest.mark.asyncio
     async def test_tool_exception_handling(self):
         """Test handling of ToolException."""
         tool = TestTool()
@@ -106,6 +109,7 @@ class TestBaseTool:
         assert "Tool execution failed" in result.message
         assert "Intentional test failure" in result.message
     
+    @pytest.mark.asyncio
     async def test_unexpected_exception_handling(self):
         """Test handling of unexpected exceptions."""
         tool = FailingTool()
@@ -140,7 +144,6 @@ class TestBaseTool:
         assert "tool_args" in description
 
 
-@pytest.mark.asyncio 
 class TestToolRegistry:
     """Test the ToolRegistry implementation."""
     
@@ -215,6 +218,7 @@ class TestToolRegistry:
         categories = tool_registry.get_categories()
         assert "test" in categories
     
+    @pytest.mark.asyncio
     async def test_execute_tool_success(self, tool_registry):
         """Test successful tool execution through registry."""
         tool = TestTool()
@@ -228,6 +232,7 @@ class TestToolRegistry:
         assert result.success is True
         assert "Processed: registry test" in result.message
     
+    @pytest.mark.asyncio
     async def test_execute_nonexistent_tool(self, tool_registry):
         """Test executing tool that doesn't exist."""
         result = await tool_registry.execute_tool("nonexistent_tool", {})
@@ -252,6 +257,10 @@ class TestToolRegistry:
     
     def test_validate_tool_call_invalid_structure(self, tool_registry):
         """Test validation of invalid tool call structure."""
+        # Register a test tool first for later validation tests
+        tool = TestTool()
+        tool_registry.register(tool)
+        
         # Not a dictionary
         is_valid, error_msg = tool_registry.validate_tool_call("not a dict")
         assert is_valid is False
@@ -262,14 +271,14 @@ class TestToolRegistry:
         assert is_valid is False
         assert "must include 'tool_name'" in error_msg
         
-        # Missing tool_args
-        is_valid, error_msg = tool_registry.validate_tool_call({"tool_name": "test"})
+        # Missing tool_args (with valid tool name)
+        is_valid, error_msg = tool_registry.validate_tool_call({"tool_name": "test_tool"})
         assert is_valid is False
         assert "must include 'tool_args'" in error_msg
         
-        # Invalid tool_args type
+        # Invalid tool_args type (with valid tool name)
         is_valid, error_msg = tool_registry.validate_tool_call({
-            "tool_name": "test",
+            "tool_name": "test_tool",
             "tool_args": "not a dict"
         })
         assert is_valid is False

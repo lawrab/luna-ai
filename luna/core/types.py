@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Protocol, TypeVar, Union, runtime_checkable
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 # Base Types
@@ -53,8 +53,7 @@ class Event(BaseModel):
     correlation_id: Optional[CorrelationId] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
     
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class AudioEvent(Event):
@@ -214,12 +213,23 @@ class LLMConfig(BaseModel):
     temperature: float = 0.7
 
 
+class TTSConfig(BaseModel):
+    """TTS configuration."""
+    enabled: bool = True
+    engine: str = "espeak-ng"
+    voice: str = "en"
+    speed: int = 175
+    pitch: int = 50
+    volume: int = 100
+
+
 class AppConfig(BaseModel):
     """Application configuration."""
     debug: bool = False
     log_level: LogLevel = LogLevel.INFO
     audio: AudioConfig = Field(default_factory=AudioConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
     
     @field_validator('log_level', mode='before')
     @classmethod 
