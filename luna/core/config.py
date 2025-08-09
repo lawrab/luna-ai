@@ -8,7 +8,7 @@ from typing import Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .types import AppConfig, AudioConfig, LLMConfig, LogLevel
+from .types import AppConfig, AudioConfig, LLMConfig, TTSConfig, LogLevel
 
 
 class Settings(BaseSettings):
@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 30
     llm_max_retries: int = 3
     llm_temperature: float = 0.7
+    
+    # TTS settings
+    tts_enabled: bool = True
+    tts_engine: str = "espeak-ng"
+    tts_voice: str = "en"
+    tts_speed: int = 175
+    tts_pitch: int = 50
+    tts_volume: int = 100
     
     model_config = SettingsConfigDict(
         env_prefix="LUNA_",
@@ -88,6 +96,14 @@ class Settings(BaseSettings):
                 timeout_seconds=self.llm_timeout_seconds,
                 max_retries=self.llm_max_retries,
                 temperature=self.llm_temperature,
+            ),
+            tts=TTSConfig(
+                enabled=self.tts_enabled,
+                engine=self.tts_engine,
+                voice=self.tts_voice,
+                speed=self.tts_speed,
+                pitch=self.tts_pitch,
+                volume=self.tts_volume,
             ),
         )
     

@@ -1,5 +1,5 @@
 """
-Modern L.U.N.A. main application with dependency injection and proper lifecycle management.
+Modern L.U.N.A. main application with split terminal UI and dependency injection.
 """
 import asyncio
 import signal
@@ -7,29 +7,27 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
-
 from .core.config import get_config_manager
 from .core.logging import configure_logging, get_logger, set_correlation_id
 from .core.events import initialize_event_bus, shutdown_event_bus, get_event_bus
 from .core.di import get_container, register_factory, register_service
-from .core.types import CorrelationId, Event
+from .core.types import CorrelationId, Event, ServiceStatus
 from .services.llm import OllamaService
 from .services.audio import AudioService
 from .services.agent import AgentService
+from .services.tts import TTSService
 from .tools.desktop import DesktopNotificationTool, SystemCommandTool
 from .tools.base import get_tool_registry
+from .ui.terminal import get_terminal_ui
+from .ui.logging_handler import setup_ui_logging
 
 
 logger = get_logger(__name__)
-console = Console()
 
 
 class LunaApplication:
     """
-    Main L.U.N.A. application with modern architecture.
+    Main L.U.N.A. application with split terminal UI and modern architecture.
     """
     
     def __init__(self):
@@ -38,25 +36,21 @@ class LunaApplication:
         self.event_bus = get_event_bus()
         self.running = True
         self._shutdown_event = asyncio.Event()
+        self.ui = get_terminal_ui()
         
     async def initialize(self) -> None:
         """Initialize application components."""
-        console.print(Panel(
-            Text("🤖 L.U.N.A. - Logical Unified Network Assistant", style="bold blue"),
-            title="Initializing",
-            border_style="blue"
-        ))
+        # Show startup banner
+        self.ui.print_startup_banner()
         
         # Setup configuration and directories
         self.config_manager.ensure_directories()
         config = self.config_manager.app_config
         
-        # Configure logging
-        configure_logging(
-            level=config.log_level,
-            structured=not config.debug,
-            log_file=str(self.config_manager.get_log_file_path()) if not config.debug else None
-        )
+        # Set up UI logging BEFORE any other logging configuration
+        setup_ui_logging(config.log_level.value if hasattr(config.log_level, 'value') else config.log_level)
+        
+        self.ui.update_app_status("Initialising components...")
         
         logger.info("Starting L.U.N.A. initialization")
         
@@ -66,6 +60,7 @@ class LunaApplication:
         # Register service factories
         register_factory(OllamaService, lambda: OllamaService(config.llm))
         register_factory(AudioService, lambda: AudioService(config.audio))
+        register_factory(TTSService, lambda: TTSService(config.tts))
         register_factory(AgentService, lambda agent_service_factory: agent_service_factory())
         
         # Custom factory for AgentService that resolves LLM dependency
@@ -95,6 +90,9 @@ class LunaApplication:
         self.event_bus.subscribe("audio.recording_started", self._handle_audio_started)
         self.event_bus.subscribe("audio.transcription_completed", self._handle_transcription)
         self.event_bus.subscribe("system.shutdown", self._handle_shutdown)
+        
+        # Service status updates
+        self.event_bus.subscribe("service.status_changed", self._handle_service_status)
     
     async def _handle_agent_response(self, event: Event) -> None:
         """Handle agent response events."""
@@ -104,40 +102,48 @@ class LunaApplication:
         if response_type == "tool_result":
             tool_name = event.payload.get("tool_name", "unknown")
             success = event.payload.get("success", False)
-            style = "green" if success else "red"
-            console.print(f"🔧 [{tool_name}] {response_text}", style=style)
+            if success:
+                self.ui.show_tool_execution(tool_name, "completed")
+            else:
+                self.ui.show_tool_execution(tool_name, "failed")
         else:
-            console.print(f"🤖 {response_text}", style="cyan")
+            self.ui.show_agent_response(response_text)
     
     async def _handle_agent_error(self, event: Event) -> None:
         """Handle agent error events."""
         error_msg = event.payload.get("error", "Unknown error")
-        console.print(f"❌ Error: {error_msg}", style="red")
+        self.ui.show_error(error_msg)
     
     async def _handle_tool_started(self, event: Event) -> None:
         """Handle tool started events."""
         tool_name = event.tool_name or "unknown"
-        console.print(f"🔄 Executing {tool_name}...", style="yellow")
+        self.ui.show_tool_execution(tool_name, "executing")
     
     async def _handle_tool_completed(self, event: Event) -> None:
         """Handle tool completed events."""
         tool_name = event.tool_name or "unknown"
-        console.print(f"✅ {tool_name} completed", style="green")
+        self.ui.show_tool_execution(tool_name, "completed")
     
     async def _handle_tool_failed(self, event: Event) -> None:
         """Handle tool failed events."""
         tool_name = event.tool_name or "unknown"
         error = event.payload.get("error", "Unknown error")
-        console.print(f"❌ {tool_name} failed: {error}", style="red")
+        self.ui.show_tool_execution(tool_name, "failed")
     
     async def _handle_audio_started(self, event: Event) -> None:
         """Handle audio recording started."""
-        console.print("🎤 Listening for speech...", style="green")
+        self.ui.show_listening()
     
     async def _handle_transcription(self, event: Event) -> None:
         """Handle speech transcription completed."""
         text = event.payload.get("text", "")
-        console.print(f"👤 You said: {text}", style="white")
+        self.ui.show_user_input(text)
+    
+    async def _handle_service_status(self, event: Event) -> None:
+        """Handle service status change events."""
+        service_name = event.payload.get("service_name", "unknown")
+        status = event.payload.get("status", ServiceStatus.UNKNOWN)
+        self.ui.update_service_status(service_name, status)
     
     async def _handle_shutdown(self, event: Event) -> None:
         """Handle shutdown events."""
@@ -147,15 +153,23 @@ class LunaApplication:
     async def lifecycle(self):
         """Application lifecycle context manager."""
         try:
+            self.ui.update_app_status("Starting services...")
+            
             # Get services first to ensure they're registered
             llm_service = await self.container.get(OllamaService)
             audio_service = await self.container.get(AudioService)
+            tts_service = await self.container.get(TTSService)
             agent_service = await self.container.get(AgentService)
+            
+            # Update service statuses
+            self.ui.update_service_status("llm", llm_service.status)
+            self.ui.update_service_status("audio", audio_service.status)
+            self.ui.update_service_status("tts", tts_service.status)
+            self.ui.update_service_status("agent", agent_service.status)
             
             # Now start all services
             async with self.container.lifecycle():
-                
-                console.print("🚀 L.U.N.A. is online!", style="bold green")
+                self.ui.update_app_status("L.U.N.A. is online! 🚀")
                 
                 # Start audio recording if available
                 if audio_service.status.value == "healthy":
@@ -163,19 +177,20 @@ class LunaApplication:
                     set_correlation_id(correlation_id)
                     await audio_service.start_recording(correlation_id)
                 else:
-                    console.print("⚠️  Audio not available - text input mode", style="yellow")
+                    self.ui.show_warning("Audio not available - text input mode")
                     # Start text input task
                     asyncio.create_task(self._text_input_loop())
                 
                 yield
                 
         finally:
+            self.ui.update_app_status("Shutting down...")
             await shutdown_event_bus()
-            console.print("👋 L.U.N.A. shutdown complete", style="blue")
+            self.ui.stop()
     
     async def _text_input_loop(self) -> None:
         """Text input loop when audio is not available."""
-        console.print("💬 Type messages (or 'exit' to quit):", style="cyan")
+        self.ui.show_info("💬 Type messages (or 'exit' to quit)")
         
         while self.running and not self._shutdown_event.is_set():
             try:
@@ -189,6 +204,7 @@ class LunaApplication:
                     break
                 
                 if user_input.strip():
+                    self.ui.show_user_input(user_input.strip())
                     correlation_id = CorrelationId()
                     await self.event_bus.publish(Event(
                         type="user_input",
@@ -207,9 +223,22 @@ class LunaApplication:
     
     async def run(self) -> None:
         """Run the main application."""
-        async with self.lifecycle():
-            # Wait for shutdown signal
-            await self._shutdown_event.wait()
+        # Start the UI in the background
+        ui_task = asyncio.create_task(self.ui.start())
+        
+        try:
+            async with self.lifecycle():
+                # Wait for shutdown signal
+                await self._shutdown_event.wait()
+        finally:
+            # Stop the UI
+            self.ui.stop()
+            if not ui_task.done():
+                ui_task.cancel()
+                try:
+                    await ui_task
+                except asyncio.CancelledError:
+                    pass
     
     def setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
@@ -233,9 +262,10 @@ async def main() -> None:
         await app.run()
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
+        app.ui.show_info("Shutdown requested")
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        console.print(f"💥 Fatal error: {e}", style="bold red")
+        app.ui.show_error(f"Fatal error: {e}")
         sys.exit(1)
 
 

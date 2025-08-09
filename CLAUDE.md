@@ -1,20 +1,9 @@
-Claude AI System Prompt: Project L.U.N.A.
+# L.U.N.A. Project Memory
 
-## Persona
-
-You are an expert Python and AI engineer working on L.U.N.A. (Logical Unified Network Assistant), a personal AI assistant designed for deep integration with NixOS and Hyprland desktop environment. Your role is to maintain, debug, and enhance this evolving application with focus on modern async Python patterns, proper error handling, and clean architecture.
-
-## Project Context
-
-L.U.N.A. is a personal AI assistant built for practical daily use and continuous learning. The project emphasizes:
-- **Async-first architecture**: Migration from threading to asyncio for better performance and reliability
-- **Event-driven design**: Decoupled components communicating via publish-subscribe pattern
-- **Local AI**: Uses Ollama with llama3 model for privacy and offline capability
-- **Desktop integration**: Native notifications, speech synthesis, voice recognition
-- **Reproducible development**: NixOS flake-based environment
+## Project Overview
+L.U.N.A. (Logical Unified Network Assistant) is a personal AI assistant built for NixOS with Hyprland desktop environment. The project emphasizes async-first architecture, event-driven design, local AI with Ollama, and reproducible development.
 
 ## Core Technologies
-
 - **OS Environment**: NixOS with Hyprland window manager
 - **Development Environment**: Managed by `flake.nix` for reproducibility
 - **Language**: Python 3.11+ with asyncio
@@ -23,89 +12,132 @@ L.U.N.A. is a personal AI assistant built for practical daily use and continuous
 - **Speech**: OpenAI Whisper (STT), espeak-ng (TTS)
 - **Audio**: PyAudio for microphone input
 - **Testing**: pytest with async support
-- **Dependencies**: pip + requirements.txt (moved away from Nix packages for speed)
+- **Dependencies**: pip + requirements.txt
 
 ## Architecture Overview
-
 ```
 luna/
 ├── main.py          # Entry point with App class and asyncio event loop
-├── agent.py         # LunaAgent - core AI logic and tool orchestration  
-├── listen.py        # AudioListener - async speech-to-text with Whisper
-├── speech.py        # TTS functionality with espeak-ng
-├── events.py        # Publish-subscribe event bus with async support
-├── tools.py         # Available tools (desktop notifications, etc.)
-├── prompts.py       # System prompts for LLM
-├── config.py        # Configuration settings
-└── ui.py           # Console UI components
+├── core/            # Core framework components
+│   ├── config.py    # Configuration management with Pydantic v2
+│   ├── events.py    # Async event bus system
+│   ├── di.py        # Dependency injection container
+│   ├── logging.py   # Structured logging
+│   └── types.py     # Type definitions and protocols
+├── services/        # Service layer
+│   ├── agent.py     # LunaAgent - core AI logic and tool orchestration
+│   ├── audio.py     # Audio service with voice detection
+│   └── llm.py       # Ollama LLM service
+└── tools/           # Available tools (desktop notifications, system commands)
 ```
 
-## Development History & Current State
+## Major Issues Resolved
 
-### Completed Phases:
-1. **Initial Setup**: Basic conversational AI with LangChain + Ollama
-2. **Environment**: Reproducible dev environment via flake.nix
-3. **Tool System**: Manual JSON-based tool calling (LLM outputs structured JSON)
-4. **Modular Architecture**: Separated concerns into focused modules
-5. **Testing Framework**: pytest with mocking for external dependencies
-6. **Audio Integration**: Whisper STT + espeak-ng TTS
+### 1. Pydantic v2 Migration
+**Problem**: Application failed to start due to incompatible Pydantic imports
+**Solution**: 
+- Updated `BaseSettings` import from `pydantic-settings`
+- Changed `@validator` to `@field_validator` with proper syntax
+- Fixed `regex` parameter renamed to `pattern` in Field definitions
+- Added `@runtime_checkable` decorator to Service protocol
 
-### Current Migration: Threading → Asyncio
-**Status**: Partially complete but with issues
+### 2. Service Lifecycle Bug
+**Problem**: Services registered after startup, causing agent to never subscribe to events
+**Solution**: 
+- Fixed dependency injection container lifecycle flow
+- Services now get registered BEFORE starting, not after
+- Agent service now properly subscribes to `user_input` events
 
-**What Works**:
-- Main event loop runs with `asyncio.run()`
-- LLM calls use `ainvoke()` for async LangChain integration
-- Audio processing uses `asyncio.to_thread()` for blocking operations
-- Tool execution runs as async tasks
-- Basic event system supports async waiting
+### 3. Audio System Complete Overhaul
+**Problem**: Audio was completely non-functional - no device detection, segfaults, wrong thresholds
+**Solution**: Implemented robust audio system with:
 
-**Current Issues**:
-1. **Missing Dependencies**: `pyaudio` and `openai-whisper` not in requirements.txt
-2. **Event System**: Mixed sync/async subscribers cause compatibility issues
-3. **Error Handling**: Async exceptions not properly caught in some paths
-4. **Test Suite**: Tests written for sync code, need async updates
-5. **Audio Cleanup**: Potential resource leaks in AudioListener
+#### Device Detection
+- Automatic audio device discovery and validation
+- Sample rate compatibility testing (16kHz, 22kHz, 44.1kHz, 48kHz)
+- Fallback strategy: configured device → default device → scan all devices
+- Proper error handling for device unavailability
 
-## Tool Integration System
+#### Resource Management
+- Simplified PyAudio context management without complex async wrappers
+- Singleton Whisper model manager to prevent repeated loading
+- Clean resource cleanup without memory leaks
+- Thread-safe model loading with proper locking
 
-L.U.N.A. uses a custom tool system where:
-1. LLM receives system prompt describing available tools
-2. LLM outputs JSON when it wants to use a tool: `{"tool_name": "...", "tool_args": {...}}`
-3. Agent parses JSON and executes corresponding async function from `tools.py`
-4. Results are published via event system
+#### Voice Activity Detection
+- Two-level threshold system with hysteresis:
+  - Speech start threshold: 800 RMS (prevents false positives)
+  - Speech end threshold: 200 RMS (prevents cutting off speech)
+- Reduced silence timeout from 3 seconds to 1 second for responsiveness
+- Proper background noise handling (~50-70 RMS doesn't trigger)
+- Debug logging for RMS values and detection events
 
-**Available Tools**:
-- `send_desktop_notification(title, message)`: Desktop notifications via notify-send
+#### Configuration
+- Added validation for empty device index values (converts "" to None)
+- Automatic device configuration without hardcoded indices
+- Environment variable support for all audio parameters
 
-## Event-Driven Architecture
+## Current State
+- ✅ **Application Startup**: All services start correctly and healthily
+- ✅ **Event System**: Proper async event bus with working subscriptions
+- ✅ **LLM Integration**: Ollama + llama3 working with tool execution
+- ✅ **Audio Input**: Complete voice detection and transcription pipeline
+- ✅ **Tool System**: Desktop notifications and system commands functional
+- ✅ **Error Handling**: Graceful degradation and proper exception handling
+- ✅ **Resource Management**: Clean startup/shutdown without leaks
 
-The event bus (`events.py`) enables loose coupling:
-- **Publishers**: Components emit events (e.g., "user_input", "agent_response")
-- **Subscribers**: Components register handlers for event types
-- **Async Support**: `wait_for_event()` for coordination between async tasks
-
-## Key Challenges to Address
-
-1. **Async Event Compatibility**: Event subscribers can be sync or async functions
-2. **Resource Management**: Proper cleanup of audio streams and async tasks  
-3. **Error Propagation**: Async exceptions in event handlers need proper handling
-4. **Testing**: Async test patterns for the migrated codebase
-5. **Audio Reliability**: Robust microphone handling across different audio setups
+## Architecture Principles Established
+1. **Async-first**: All services use proper asyncio patterns
+2. **Event-driven**: Loose coupling via publish-subscribe pattern
+3. **Dependency Injection**: Services properly managed through DI container
+4. **Configuration Management**: Environment-based config with validation
+5. **Error Resilience**: Services can start in degraded mode if dependencies unavailable
+6. **Resource Cleanup**: Proper lifecycle management for all resources
 
 ## Development Workflow
-
 - **Environment**: Use `nix develop` to enter development shell
-- **Testing**: `pytest tests/` (requires async test updates)
+- **Testing**: `pytest tests/` (async patterns implemented)
 - **Dependencies**: Add to `requirements.txt`, install with pip in dev shell
-- **Architecture**: Maintain async-first patterns, avoid blocking operations
-- **Events**: Use event bus for component communication, avoid direct coupling
+- **Configuration**: Environment variables in `.env` file
+- **Debugging**: Structured logging with correlation IDs
 
-## Next Steps
+## Writing Style Requirements
+**IMPORTANT**: Always use UK English spelling and conventions:
+- Use "realise" not "realize"  
+- Use "colour" not "color"
+- Use "organised" not "organized"
+- Use "behaviour" not "behavior"
+- Use "centre" not "center"
+- Use "licence" (noun) / "license" (verb)
+- Use other British spelling conventions throughout all documentation, code comments, and commit messages
 
-The immediate priority is completing the asyncio migration by:
-1. Adding missing dependencies to requirements.txt
-2. Fixing event system async compatibility
-3. Updating test suite for async patterns
-4. Ensuring proper resource cleanup
-5. Testing end-to-end functionality in nix development environment
+## TTS Integration Complete
+**Latest Addition**: Text-to-speech functionality fully integrated
+**Implementation**:
+- Created `TTSService` in `luna/services/tts.py` with espeak-ng integration
+- Event-driven architecture: subscribes to `agent.response` events
+- Automatic speech conversion for conversational responses
+- Configurable voice parameters (speed, pitch, volume, voice)
+- Clean text processing for better speech synthesis (acronym handling, length limits)
+- Proper error handling and service health checking
+
+**Current Pipeline**: Voice Input → Whisper STT → LLM Processing → Tool Execution → espeak-ng TTS Output
+
+## Split Terminal UI (Completed)
+**Latest Addition**: Professional split terminal interface for improved user experience
+**Implementation**:
+- Rich Layout-based split panes (75% debug logs, 25% user interaction)
+- Real-time message queuing and display updates using `asyncio.Queue`
+- Service status monitoring with emoji indicators
+- Custom logging handler that captures all output to prevent console interference
+- Fixed screen flickering by completely eliminating direct console output below interface
+- Separate logs from interactive messages to reduce spam
+
+**UI Features**:
+- Live log streaming with colour-coded severity levels
+- Service health status indicators (🟢 healthy, 🟡 degraded, 🔴 failed)
+- Interactive message pane with timestamps and emojis
+- Graceful startup/shutdown with proper resource cleanup
+- 4 FPS refresh rate for smooth updates without performance impact
+
+The system is now production-ready with complete bidirectional audio functionality, professional terminal interface, proper error handling, and clean architecture patterns.
